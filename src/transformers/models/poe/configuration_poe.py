@@ -9,7 +9,9 @@ class PoEModelConfig(PretrainedConfig):
     This configuration is mostly based on the configuration from mixtral.
     """
 
-    model_type = "poe" # [2024/10/19 torridfish] Change back to poe (poe -> mixtral -> poe)
+    model_type = "poe" # [2024/10/19 torridfish] Change back to poe (poe -> mixtral -> poe).
+                       # This is super important: The unique model_type will choose what class to use!
+                       # For now, it cannot be mixtral anymore.
 
     def __init__(
         self,
