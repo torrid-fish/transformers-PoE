@@ -1,5 +1,8 @@
-from transformers import PretrainedConfig
+from ...configuration_utils import PretrainedConfig
+from ...utils import logging
 from typing import List
+
+logger = logging.get_logger(__name__)
 
 class PoEModelConfig(PretrainedConfig):
     r"""
