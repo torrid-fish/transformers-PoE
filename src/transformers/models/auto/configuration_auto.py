@@ -216,6 +216,7 @@ CONFIG_MAPPING_NAMES = OrderedDict(
         ("pix2struct", "Pix2StructConfig"),
         ("pixtral", "PixtralVisionConfig"),
         ("plbart", "PLBartConfig"),
+        ("poe", "PoEModelConfig"), # [2024/10/19 torridfish] Add poe configuration
         ("poolformer", "PoolFormerConfig"),
         ("pop2piano", "Pop2PianoConfig"),
         ("prophetnet", "ProphetNetConfig"),
@@ -532,6 +533,7 @@ MODEL_NAMES_MAPPING = OrderedDict(
         ("pix2struct", "Pix2Struct"),
         ("pixtral", "Pixtral"),
         ("plbart", "PLBart"),
+        ("poe", "PoEModel"), # [2024/10/19 torridfish] Add poe model
         ("poolformer", "PoolFormer"),
         ("pop2piano", "Pop2Piano"),
         ("prophetnet", "ProphetNet"),

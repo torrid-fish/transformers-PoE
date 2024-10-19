@@ -203,6 +203,7 @@ MODEL_MAPPING_NAMES = OrderedDict(
         ("phimoe", "PhimoeModel"),
         ("pixtral", "PixtralVisionModel"),
         ("plbart", "PLBartModel"),
+        ("poe", "PoEModel"), # [2024/10/19 torridfish] Add poe model
         ("poolformer", "PoolFormerModel"),
         ("prophetnet", "ProphetNetModel"),
         ("pvt", "PvtModel"),
@@ -526,6 +527,7 @@ MODEL_FOR_CAUSAL_LM_MAPPING_NAMES = OrderedDict(
         ("phi3", "Phi3ForCausalLM"),
         ("phimoe", "PhimoeForCausalLM"),
         ("plbart", "PLBartForCausalLM"),
+        ("poe", "PoEForCausalLM"), # [2024/10/19 torridfish] Add poe model
         ("prophetnet", "ProphetNetForCausalLM"),
         ("qdqbert", "QDQBertLMHeadModel"),
         ("qwen2", "Qwen2ForCausalLM"),
@@ -870,6 +872,7 @@ MODEL_FOR_DEPTH_ESTIMATION_MAPPING_NAMES = OrderedDict(
         ("zoedepth", "ZoeDepthForDepthEstimation"),
     ]
 )
+
 MODEL_FOR_SEQ_TO_SEQ_CAUSAL_LM_MAPPING_NAMES = OrderedDict(
     [
         # Model for Seq2Seq Causal LM mapping
@@ -985,6 +988,7 @@ MODEL_FOR_SEQUENCE_CLASSIFICATION_MAPPING_NAMES = OrderedDict(
         ("phi3", "Phi3ForSequenceClassification"),
         ("phimoe", "PhimoeForSequenceClassification"),
         ("plbart", "PLBartForSequenceClassification"),
+        ("poe", "PoEForSequenceClassification"), # [2024/10/19 torridfish] Add poe model
         ("qdqbert", "QDQBertForSequenceClassification"),
         ("qwen2", "Qwen2ForSequenceClassification"),
         ("qwen2_moe", "Qwen2MoeForSequenceClassification"),
@@ -1063,6 +1067,7 @@ MODEL_FOR_QUESTION_ANSWERING_MAPPING_NAMES = OrderedDict(
         ("nezha", "NezhaForQuestionAnswering"),
         ("nystromformer", "NystromformerForQuestionAnswering"),
         ("opt", "OPTForQuestionAnswering"),
+        # ("poe", "PoEForQuestionAnswering"), # [2024/10/19 torridfish] We don't actually have this class
         ("qdqbert", "QDQBertForQuestionAnswering"),
         ("qwen2", "Qwen2ForQuestionAnswering"),
         ("qwen2_moe", "Qwen2MoeForQuestionAnswering"),
@@ -1161,6 +1166,7 @@ MODEL_FOR_TOKEN_CLASSIFICATION_MAPPING_NAMES = OrderedDict(
         ("nemotron", "NemotronForTokenClassification"),
         ("nezha", "NezhaForTokenClassification"),
         ("nystromformer", "NystromformerForTokenClassification"),
+        # ("poe", "PoEForTokenClassification"), # [2024/10/19 torridfish] We don't actually have this class
         ("persimmon", "PersimmonForTokenClassification"),
         ("phi", "PhiForTokenClassification"),
         ("phi3", "Phi3ForTokenClassification"),
