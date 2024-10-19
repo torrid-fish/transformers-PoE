@@ -800,12 +800,6 @@ class MixtralBlockSparseTop2MLP(nn.Module):
         self.act_fn = ACT2FN[config.hidden_act]
 
     def forward(self, hidden_states):
-        # print("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
-        # print(self.w1.weight.device, self.w2.weight.device, self.w3.weight.device)
-        # print(hidden_states.device)
-        # hidden_states = hidden_states.to(self.w1.weight.device)
-        # print(hidden_states.device)
-        # print("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
         current_hidden_states = self.act_fn(self.w1(hidden_states)) * self.w3(hidden_states)
         current_hidden_states = self.w2(current_hidden_states)
         return current_hidden_states
@@ -938,12 +932,9 @@ class MixtralDecoderLayer(nn.Module):
                 If set to `True`, `past_key_values` key value states are returned and can be used to speed up decoding
                 (see `past_key_values`).
         """
-        print(" ======= Enter MixtralDecoderLayer ====== ")
         residual = hidden_states
-        print(residual.device)
 
         hidden_states = self.input_layernorm(hidden_states)
-        print(hidden_states.device)
 
         # Self Attention
         hidden_states, self_attn_weights, present_key_value = self.self_attn(
@@ -955,14 +946,12 @@ class MixtralDecoderLayer(nn.Module):
             use_cache=use_cache,
         )
         hidden_states = residual + hidden_states
-        print(hidden_states.device)
 
         # Fully Connected
         residual = hidden_states
         hidden_states = self.post_attention_layernorm(hidden_states)
         hidden_states, router_logits = self.block_sparse_moe(hidden_states)
         hidden_states = residual + hidden_states
-        print(hidden_states.device)
 
         outputs = (hidden_states,)
 
@@ -1031,7 +1020,6 @@ class PoEMixtralSparseMoeBlock(nn.Module):
         routing_weights = F.softmax(router_logits, dim=1, dtype=torch.float)
 
         # Route depends on routing type
-        print("Hidden states device:", hidden_states.device)
         if self.routing_type.startswith('Top'):
             top_k = int(self.routing_type[3:])
             routing_weights, selected_experts = torch.topk(routing_weights, top_k, dim=-1)
@@ -1049,7 +1037,6 @@ class PoEMixtralSparseMoeBlock(nn.Module):
             # One hot encode the selected experts to create an expert mask
             # this will be used to easily index which expert is going to be sollicitated
             expert_mask = torch.nn.functional.one_hot(selected_experts, num_classes=self.num_experts).permute(2, 1, 0)
-            print(expert_mask.shape)
 
             # Loop over all available experts in the model and perform the computation on each expert
             for expert_idx in range(self.num_experts):
@@ -1117,12 +1104,9 @@ class PoEMixtralDecoderLayer(nn.Module):
                 If set to `True`, `past_key_values` key value states are returned and can be used to speed up decoding
                 (see `past_key_values`).
         """
-        print(" ======= Enter PoEMixtralDecoderLayer ====== ")
         residual = hidden_states
-        print(residual.device)
 
         hidden_states = self.input_layernorm(hidden_states)
-        print(hidden_states.device)
 
         # Self Attention
         hidden_states, self_attn_weights, present_key_value = self.self_attn(
@@ -1134,12 +1118,10 @@ class PoEMixtralDecoderLayer(nn.Module):
             use_cache=use_cache,
         )
         hidden_states = residual + hidden_states
-        print(hidden_states.device)
         
         expert_pool = pool
         for expert in expert_pool:
             # devices = [para.device for para in expert.parameters()]
-            # print(devices)
             for para in expert.parameters():
                 para = para.to(hidden_states.device)
 
@@ -1148,8 +1130,6 @@ class PoEMixtralDecoderLayer(nn.Module):
         hidden_states = self.post_attention_layernorm(hidden_states)
         hidden_states, router_logits = self.block_sparse_moe(hidden_states, expert_pool) # Add pool as a parameter
         hidden_states = residual + hidden_states
-
-        print(hidden_states.device)
 
         outputs = (hidden_states,)
 
@@ -1434,15 +1414,6 @@ class PoEModel(PoEPreTrainedModel):
             if output_hidden_states:
                 all_hidden_states += (hidden_states,)
 
-            print(f"=========== layer {layer_idx} ===========")
-            print(hidden_states)
-            print(attention_mask)
-            print(position_ids)
-            print(past_key_values)
-            print(output_attentions)
-            print(output_router_logits)
-            print(use_cache)
-
             if self.gradient_checkpointing and self.training:
                 if layer_type == -1:
                     layer_outputs = self._gradient_checkpointing_func(
@@ -1479,13 +1450,6 @@ class PoEModel(PoEPreTrainedModel):
                         use_cache=use_cache,
                     )
                 else:
-                    # # Print out all the devices of all parameters in the pool
-                    # pool = self.poe[self.layer_type[layer_idx]]
-                    # for i, expert in enumerate(pool):
-                    #     print(f"Expert {i}")
-                    #     for para in expert.parameters():
-                    #         print(para.device)
-                    #         device = para.device
 
                     layer_outputs = decoder_layer(
                         hidden_states,
