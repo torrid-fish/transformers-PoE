@@ -73,6 +73,7 @@ logger = logging.get_logger(__name__)
 
 _CONFIG_FOR_DOC = "PoEModelConfig"
 
+# Test
 
 def load_balancing_loss_func(
     gate_logits: torch.Tensor, num_experts: torch.Tensor = None, top_k=2, attention_mask: Optional[torch.Tensor] = None
@@ -932,6 +933,7 @@ class MixtralDecoderLayer(nn.Module):
                 If set to `True`, `past_key_values` key value states are returned and can be used to speed up decoding
                 (see `past_key_values`).
         """
+        
         residual = hidden_states
 
         hidden_states = self.input_layernorm(hidden_states)
