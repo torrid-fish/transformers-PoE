@@ -995,11 +995,10 @@ class SparsePoEBlock(nn.Module):
 
 
         # [POE INVESETIGATION] Check the frequency of each expert being selected
-        # TODO Change for the new architeucture
         self.frequency = [torch.zeros(self.num_experts) for _ in range(sub_layer_num)]
-
-        # gating
-        self.gate = nn.Linear(self.hidden_dim, self.num_experts, bias=False)
+        
+        # gating for each sublayer
+        self.gate = nn.ModuleList([nn.Linear(self.hidden_dim, self.num_experts, bias=False) for _ in range(sub_layer_num)])
 
         self.experts = nn.ModuleList([MixtralBlockSparseTop2MLP(config) for _ in range(self.num_experts)])
 
@@ -1013,7 +1012,7 @@ class SparsePoEBlock(nn.Module):
             hidden_states *= torch.empty_like(hidden_states).uniform_(1.0 - self.jitter_noise, 1.0 + self.jitter_noise)
         hidden_states = hidden_states.view(-1, hidden_dim)
         # router_logits: (batch * sequence_length, n_experts)
-        router_logits = self.gate(hidden_states)
+        router_logits = self.gate[sub_layer_idx](hidden_states)
 
         routing_weights = F.softmax(router_logits, dim=1, dtype=torch.float)
 
@@ -1028,7 +1027,6 @@ class SparsePoEBlock(nn.Module):
             )
             
             # [POE INVESTIGATION] Check the frequency of each expert being selected
-            # TODO: Change for new architecture
             for expert_idx in selected_experts:
                 _idx = expert_idx.cpu()
                 self.frequency[sub_layer_idx][_idx] += 1
@@ -1056,7 +1054,7 @@ class SparsePoEBlock(nn.Module):
             raise NotImplementedError
 
     def get_expert_frequency(self, idx):
-        return [freq.cpu().tolist() for freq in self.frequency]
+        return self.frequency[idx].cpu().tolist()
 
 # Modified from `MixtralDecoderLayer``
 class PoEDecoderLayer(nn.Module):
@@ -1066,8 +1064,8 @@ class PoEDecoderLayer(nn.Module):
         self.sub_layer_num = sub_layer_num
 
         # [2024/10/23 Kuanting] sub_layer_num attenion layer
-        self.self_attn = nn.ModuleList([MIXTRAL_ATTENTION_CLASSES[config._attn_implementation](config, layer_idx) for _ in range(sub_layer_num)])
         self.input_layernorm = nn.ModuleList([MixtralRMSNorm(config.hidden_size, eps=config.rms_norm_eps) for _ in range(sub_layer_num)])
+        self.self_attn = nn.ModuleList([MIXTRAL_ATTENTION_CLASSES[config._attn_implementation](config, layer_idx) for _ in range(sub_layer_num)])
         self.post_attention_layernorm = nn.ModuleList([MixtralRMSNorm(config.hidden_size, eps=config.rms_norm_eps) for _ in range(sub_layer_num)])
         self.block_sparse_poe = SparsePoEBlock(config=config, sub_layer_num=sub_layer_num)
 
@@ -1480,14 +1478,6 @@ class PoEForCausalLM(PoEPreTrainedModel):
 
     def __init__(self, config):
         super().__init__(config)
-
-        # TODO: Remove if it is no longer needed
-        # Configure `_no_split_modules`
-        # num_pooled_layers = sum([len(layers) for layers in config.pool_layer]) 
-        # if config.num_hidden_layers == num_pooled_layers:
-        #     self._no_split_modules = ["MixtralBlockSparseTop2MLP", "Gate", "PoEDecoderLayer"]
-        # else:
-        #     self._no_split_modules = ["MixtralBlockSparseTop2MLP", "Gate", "MixtralDecoderLayer", "PoEDecoderLayer"]
 
         self.model = PoEModel(config)
         self.vocab_size = config.vocab_size
