@@ -810,164 +810,9 @@ class MixtralBLockSparseTop2MLP(MixtralBlockSparseTop2MLP):
             "MixtralBLockSparseTop2MLP is deprecated by MixtralBlockSparseTop2MLP and will be removed in v4.40."
         )
         super().__init__(*args, **kwargs)
-
-
-# class MixtralSparseMoeBlock(nn.Module):
-#     """
-#     This implementation is
-#     strictly equivalent to standard MoE with full capacity (no
-#     dropped tokens). It's faster since it formulates MoE operations
-#     in terms of block-sparse operations to accomodate imbalanced
-#     assignments of tokens to experts, whereas standard MoE either
-#     (1) drop tokens at the cost of reduced performance or (2) set
-#     capacity factor to number of experts and thus waste computation
-#     and memory on padding.
-#     """
-
-#     def __init__(self, config):
-#         super().__init__()
-#         self.hidden_dim = config.hidden_size
-#         self.ffn_dim = config.intermediate_size
-#         self.num_experts = config.num_local_experts
-#         self.top_k = config.num_experts_per_tok
-
-#         # gating
-#         self.gate = nn.Linear(self.hidden_dim, self.num_experts, bias=False)
-
-#         self.experts = nn.ModuleList([MixtralBlockSparseTop2MLP(config) for _ in range(self.num_experts)])
-
-#         # [POE INVESIGATION] Check the frequency of each expert being selected
-#         self.frequency = torch.zeros(self.num_experts)
-
-#         # Jitter parameters
-#         self.jitter_noise = config.router_jitter_noise
-
-#     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
-#         """ """
-#         batch_size, sequence_length, hidden_dim = hidden_states.shape
-#         if self.training and self.jitter_noise > 0:
-#             hidden_states *= torch.empty_like(hidden_states).uniform_(1.0 - self.jitter_noise, 1.0 + self.jitter_noise)
-#         hidden_states = hidden_states.view(-1, hidden_dim)
-#         # router_logits: (batch * sequence_length, n_experts)
-#         router_logits = self.gate(hidden_states)
-
-#         routing_weights = F.softmax(router_logits, dim=1, dtype=torch.float)
-#         routing_weights, selected_experts = torch.topk(routing_weights, self.top_k, dim=-1)
-#         routing_weights /= routing_weights.sum(dim=-1, keepdim=True)
-#         # we cast back to the input dtype
-#         routing_weights = routing_weights.to(hidden_states.dtype)
-
-#         final_hidden_states = torch.zeros(
-#             (batch_size * sequence_length, hidden_dim), dtype=hidden_states.dtype, device=hidden_states.device
-#         )
-
-#         # [POE INVESTIGATION] Check the frequency of each expert being selected
-#         for expert_idx in selected_experts:
-#             self.frequency = self.frequency.to(expert_idx.device)
-#             self.frequency[expert_idx] += 1
-
-
-#         # One hot encode the selected experts to create an expert mask
-#         # this will be used to easily index which expert is going to be sollicitated
-#         expert_mask = torch.nn.functional.one_hot(selected_experts, num_classes=self.num_experts).permute(2, 1, 0)
-
-#         # Loop over all available experts in the model and perform the computation on each expert
-#         for expert_idx in range(self.num_experts):
-#             expert_layer = self.experts[expert_idx]
-#             idx, top_x = torch.where(expert_mask[expert_idx])
-
-#             # Index the correct hidden states and compute the expert hidden state for
-#             # the current expert. We need to make sure to multiply the output hidden
-#             # states by `routing_weights` on the corresponding tokens (top-1 and top-2)
-#             current_state = hidden_states[None, top_x].reshape(-1, hidden_dim)
-#             current_hidden_states = expert_layer(current_state) * routing_weights[top_x, idx, None]
-
-#             # However `index_add_` only support torch tensors for indexing so we'll use
-#             # the `top_x` tensor here.
-#             final_hidden_states.index_add_(0, top_x, current_hidden_states.to(hidden_states.dtype))
-#         final_hidden_states = final_hidden_states.reshape(batch_size, sequence_length, hidden_dim)
-#         return final_hidden_states, router_logits
-
-
-# class MixtralDecoderLayer(nn.Module):
-#     def __init__(self, config: PoEModelConfig, layer_idx: int):
-#         super().__init__()
-#         self.hidden_size = config.hidden_size
-
-#         self.self_attn = MIXTRAL_ATTENTION_CLASSES[config._attn_implementation](config, layer_idx)
-
-#         self.block_sparse_moe = MixtralSparseMoeBlock(config)
-#         self.input_layernorm = MixtralRMSNorm(config.hidden_size, eps=config.rms_norm_eps)
-#         self.post_attention_layernorm = MixtralRMSNorm(config.hidden_size, eps=config.rms_norm_eps)
-
-#     def forward(
-#         self,
-#         hidden_states: torch.Tensor,
-#         attention_mask: Optional[torch.Tensor] = None,
-#         position_ids: Optional[torch.LongTensor] = None,
-#         past_key_value: Optional[Tuple[torch.Tensor]] = None,
-#         output_attentions: Optional[bool] = False,
-#         output_router_logits: Optional[bool] = False,
-#         use_cache: Optional[bool] = False,
-#         **kwargs,
-#     ) -> Tuple[torch.FloatTensor, Optional[Tuple[torch.FloatTensor, torch.FloatTensor]]]:
-#         if "padding_mask" in kwargs:
-#             warnings.warn(
-#                 "Passing `padding_mask` is deprecated and will be removed in v4.37. Please make sure use `attention_mask` instead.`"
-#             )
-#         """
-#         Args:
-#             hidden_states (`torch.FloatTensor`): input to the layer of shape `(batch, seq_len, embed_dim)`
-#             attention_mask (`torch.FloatTensor`, *optional*): attention mask of size
-#                 `(batch, sequence_length)` where padding elements are indicated by 0.
-#             past_key_value (`Tuple(torch.FloatTensor)`, *optional*): cached past key and value projection states
-#             output_attentions (`bool`, *optional*):
-#                 Whether or not to return the attentions tensors of all attention layers. See `attentions` under
-#                 returned tensors for more detail.
-#             output_router_logits (`bool`, *optional*):
-#                 Whether or not to return the logits of all the routers. They are useful for computing the router loss, and
-#                 should not be returned during inference.
-#             use_cache (`bool`, *optional*):
-#                 If set to `True`, `past_key_values` key value states are returned and can be used to speed up decoding
-#                 (see `past_key_values`).
-#         """
         
-#         residual = hidden_states
 
-#         hidden_states = self.input_layernorm(hidden_states)
-
-#         # Self Attention
-#         hidden_states, self_attn_weights, present_key_value = self.self_attn(
-#             hidden_states=hidden_states,
-#             attention_mask=attention_mask,
-#             position_ids=position_ids,
-#             past_key_value=past_key_value,
-#             output_attentions=output_attentions,
-#             use_cache=use_cache,
-#         )
-#         hidden_states = residual + hidden_states
-
-#         # Fully Connected
-#         residual = hidden_states
-#         hidden_states = self.post_attention_layernorm(hidden_states)
-#         hidden_states, router_logits = self.block_sparse_moe(hidden_states)
-#         hidden_states = residual + hidden_states
-
-#         outputs = (hidden_states,)
-
-#         if output_attentions:
-#             outputs += (self_attn_weights,)
-
-#         if use_cache:
-#             outputs += (present_key_value,)
-
-#         if output_router_logits:
-#             outputs += (router_logits,)
-
-#         return outputs
-
-
-# Modified from `MixtralSparseMoEBlock``
+# [2024/10/24 Kuanting] Modified from `MixtralSparseMoEBlock`
 class SparsePoEBlock(nn.Module):
     """
     This implementation is
@@ -982,97 +827,62 @@ class SparsePoEBlock(nn.Module):
     2024/05/19: Remove pool from the the internal. Change it as a parameter of the forward method.
     """
 
-    def __init__(self, config, sub_layer_num: int):
+    def __init__(self, config: PoEModelConfig, sublayer_idx: int):
         super().__init__()
         self.hidden_dim = config.hidden_size
         self.ffn_dim = config.intermediate_size
-        self.sub_layer_num = sub_layer_num
-        self.num_experts = sub_layer_num * config.num_local_experts
-
-        # [DELETE] Now we have a config "pool_routing_type" to identify the routing algorithm
-        # self.top_k = config.num_experts_per_tok
-        self.routing_type: str = config.pool_routing_type
-
-
-        # [POE INVESETIGATION] Check the frequency of each expert being selected
-        self.frequency = [torch.zeros(self.num_experts) for _ in range(sub_layer_num)]
-        
-        # gating for each sublayer
-        self.gate = nn.ModuleList([nn.Linear(self.hidden_dim, self.num_experts, bias=False) for _ in range(sub_layer_num)])
+        self.num_experts = config.num_local_experts
+        self.idx_shift = config.num_local_experts * sublayer_idx
 
         self.experts = nn.ModuleList([MixtralBlockSparseTop2MLP(config) for _ in range(self.num_experts)])
 
         # Jitter parameters
         self.jitter_noise = config.router_jitter_noise
 
-    def forward(self, hidden_states: torch.Tensor, sub_layer_idx: int) -> torch.Tensor:
-        """ """
-        batch_size, sequence_length, hidden_dim = hidden_states.shape
-        if self.training and self.jitter_noise > 0:
-            hidden_states *= torch.empty_like(hidden_states).uniform_(1.0 - self.jitter_noise, 1.0 + self.jitter_noise)
-        hidden_states = hidden_states.view(-1, hidden_dim)
-        # router_logits: (batch * sequence_length, n_experts)
-        router_logits = self.gate[sub_layer_idx](hidden_states)
+    def forward(self, hidden_states: torch.Tensor, final_hidden_states: torch.Tensor, expert_mask: torch.Tensor, hidden_dim: int, routing_weights: torch.Tensor) -> torch.Tensor:
+    
+        # Loop over all available experts in the model and perform the computation on each expert
+        for expert_idx in range(self.num_experts):
+            idx, top_x = torch.where(expert_mask[expert_idx + self.idx_shift])
 
-        routing_weights = F.softmax(router_logits, dim=1, dtype=torch.float)
+            # Index the correct hidden states and compute the expert hidden state for
+            # the current expert. We need to make sure to multiply the output hidden
+            # states by `routing_weights` on the corresponding tokens (top-1 and top-2)
+            current_state = hidden_states[None, top_x].reshape(-1, hidden_dim)
+            current_hidden_states = self.experts[expert_idx](current_state) * routing_weights[top_x, idx, None]
 
-        # Route depends on routing type
-        if self.routing_type.startswith('Top'):
-            top_k = int(self.routing_type[3:])
-            routing_weights, selected_experts = torch.topk(routing_weights, top_k, dim=-1)
-            routing_weights /= routing_weights.sum(dim=-1, keepdim=True)    
-            routing_weights = routing_weights.to(hidden_states.dtype)
-            final_hidden_states = torch.zeros(
-                (batch_size * sequence_length, hidden_dim), dtype=hidden_states.dtype, device=hidden_states.device
-            )
-            
-            # [POE INVESTIGATION] Check the frequency of each expert being selected
-            for expert_idx in selected_experts:
-                _idx = expert_idx.cpu()
-                self.frequency[sub_layer_idx][_idx] += 1
-
-            # One hot encode the selected experts to create an expert mask
-            # this will be used to easily index which expert is going to be sollicitated
-            expert_mask = torch.nn.functional.one_hot(selected_experts, num_classes=self.num_experts).permute(2, 1, 0)
-
-            # Loop over all available experts in the model and perform the computation on each expert
-            for expert_idx in range(self.num_experts):
-                idx, top_x = torch.where(expert_mask[expert_idx])
-
-                # Index the correct hidden states and compute the expert hidden state for
-                # the current expert. We need to make sure to multiply the output hidden
-                # states by `routing_weights` on the corresponding tokens (top-1 and top-2)
-                current_state = hidden_states[None, top_x].reshape(-1, hidden_dim)
-                current_hidden_states = self.experts[expert_idx](current_state) * routing_weights[top_x, idx, None]
-
-                # However `index_add_` only support torch tensors for indexing so we'll use
-                # the `top_x` tensor here.
-                final_hidden_states.index_add_(0, top_x, current_hidden_states.to(hidden_states.dtype))
-            final_hidden_states = final_hidden_states.reshape(batch_size, sequence_length, hidden_dim)
-            return final_hidden_states, router_logits
-        else:
-            raise NotImplementedError
+            # However `index_add_` only support torch tensors for indexing so we'll use
+            # the `top_x` tensor here.
+            final_hidden_states.index_add_(0, top_x, current_hidden_states.to(hidden_states.dtype))    
+        
+        return final_hidden_states
 
     def get_expert_frequency(self, idx):
         return self.frequency[idx].cpu().tolist()
 
-# Modified from `MixtralDecoderLayer``
-class PoEDecoderLayer(nn.Module):
-    def __init__(self, config: PoEModelConfig, layer_idx: int, sub_layer_num: int):
+
+# [2024/10/25 Kuanting] Solution to GPU memory external fragmentation issue
+class PreprocessBlock(nn.Module):
+    def __init__(self, config: PoEModelConfig, layer_idx: int, sublayer_num: int):
         super().__init__()
         self.hidden_size = config.hidden_size
-        self.sub_layer_num = sub_layer_num
+        self.sublayer_num = sublayer_num
+        
+        # [PoE modification] Now we have a config "pool_routing_type" to identify the routing algorithm
+        self.routing_type: str = config.pool_routing_type
 
-        # [2024/10/23 Kuanting] sub_layer_num attenion layer
-        self.input_layernorm = nn.ModuleList([MixtralRMSNorm(config.hidden_size, eps=config.rms_norm_eps) for _ in range(sub_layer_num)])
-        self.self_attn = nn.ModuleList([MIXTRAL_ATTENTION_CLASSES[config._attn_implementation](config, layer_idx) for _ in range(sub_layer_num)])
-        self.post_attention_layernorm = nn.ModuleList([MixtralRMSNorm(config.hidden_size, eps=config.rms_norm_eps) for _ in range(sub_layer_num)])
-        self.block_sparse_poe = SparsePoEBlock(config=config, sub_layer_num=sub_layer_num)
+        # [2024/10/23 Kuanting] sublayer_num attenion layer
+        self.input_layernorm = nn.ModuleList([MixtralRMSNorm(config.hidden_size, eps=config.rms_norm_eps) for _ in range(sublayer_num)])
+        self.self_attn = nn.ModuleList([MIXTRAL_ATTENTION_CLASSES[config._attn_implementation](config, layer_idx+i) for i in range(sublayer_num)])
+        self.post_attention_layernorm = nn.ModuleList([MixtralRMSNorm(config.hidden_size, eps=config.rms_norm_eps) for _ in range(sublayer_num)])
+        self.hidden_dim = config.hidden_size
+        self.num_experts = sublayer_num * config.num_local_experts
+        self.gate = nn.ModuleList([nn.Linear(self.hidden_dim, self.num_experts, bias=False) for _ in range(sublayer_num)])
 
     def forward(
         self,
         hidden_states: torch.Tensor,
-        idx: int, # [2024/10/23 Kuanting] Choose specific part to inference
+        sublayer_idx: int,
         attention_mask: Optional[torch.Tensor] = None,
         position_ids: Optional[torch.LongTensor] = None,
         past_key_value: Optional[Tuple[torch.Tensor]] = None,
@@ -1104,10 +914,10 @@ class PoEDecoderLayer(nn.Module):
         
         residual = hidden_states
 
-        hidden_states = self.input_layernorm[idx](hidden_states)
+        hidden_states = self.input_layernorm[sublayer_idx](hidden_states)
 
         # Self Attention
-        hidden_states, self_attn_weights, present_key_value = self.self_attn[idx](
+        hidden_states, self_attn_weights, present_key_value = self.self_attn[sublayer_idx](
             hidden_states=hidden_states,
             attention_mask=attention_mask,
             position_ids=position_ids,
@@ -1115,12 +925,88 @@ class PoEDecoderLayer(nn.Module):
             output_attentions=output_attentions,
             use_cache=use_cache,
         )
+        
         hidden_states = residual + hidden_states
         
         # Fully Connected
         residual = hidden_states
-        hidden_states = self.post_attention_layernorm[idx](hidden_states)
-        hidden_states, router_logits = self.block_sparse_poe(hidden_states, idx) # Pass idx for recording 
+        hidden_states = self.post_attention_layernorm[sublayer_idx](hidden_states)
+        
+        # Routing
+        batch_size, sequence_length, hidden_dim = hidden_states.shape
+        if self.training and self.jitter_noise > 0:
+            hidden_states *= torch.empty_like(hidden_states).uniform_(1.0 - self.jitter_noise, 1.0 + self.jitter_noise)
+        hidden_states = hidden_states.view(-1, hidden_dim)
+        # router_logits: (batch * sequence_length, n_experts)
+        router_logits = self.gate[sublayer_idx](hidden_states)
+
+        if self.routing_type.startswith('Top'):
+            routing_weights = F.softmax(router_logits, dim=1, dtype=torch.float)
+            top_k = int(self.routing_type[3:])
+            routing_weights, selected_experts = torch.topk(routing_weights, top_k, dim=-1)
+            routing_weights /= routing_weights.sum(dim=-1, keepdim=True)    
+            routing_weights = routing_weights.to(hidden_states.dtype)
+
+            # One hot encode the selected experts to create an expert mask
+            # this will be used to easily index which expert is going to be sollicitated
+            expert_mask = torch.nn.functional.one_hot(selected_experts, num_classes=self.num_experts).permute(2, 1, 0)
+        else:
+            raise NotImplementedError
+
+        return hidden_states, residual, router_logits, expert_mask, routing_weights, \
+                (batch_size, sequence_length, hidden_dim), self_attn_weights, present_key_value
+
+
+        
+# [2024/10/25 Kuanting] Solution to GPU memory external fragmentation issue
+class PoEDecoderLayer(nn.Module):
+    def __init__(self, config: PoEModelConfig, begin_sublayer_idx: int, sublayer_num: int):
+        super().__init__()
+        
+        self.sublayer_num = sublayer_num
+        self.begin_sublayer_idx = begin_sublayer_idx
+        self.PreprocessBlock = PreprocessBlock(config, begin_sublayer_idx, sublayer_num)
+        self.sparse_poe = nn.ModuleList([SparsePoEBlock(config, sublayer_idx) for sublayer_idx in range(sublayer_num)])
+
+    def forward(
+        self,
+        hidden_states: torch.Tensor,
+        sublayer_idx: int, # [2024/10/23 Kuanting] Choose specific part to inference
+        attention_mask: Optional[torch.Tensor] = None,
+        position_ids: Optional[torch.LongTensor] = None,
+        past_key_value: Optional[Tuple[torch.Tensor]] = None,
+        output_attentions: Optional[bool] = False,
+        output_router_logits: Optional[bool] = False,
+        use_cache: Optional[bool] = False,
+        **kwargs,
+    ) -> Tuple[torch.FloatTensor, Optional[Tuple[torch.FloatTensor, torch.FloatTensor]]]:
+        
+        hidden_states, residual, router_logits, expert_mask, routing_weights, \
+        before_routing_shape, self_attn_weights, present_key_value = self.PreprocessBlock(
+            hidden_states,
+            sublayer_idx,
+            attention_mask,
+            position_ids,
+            past_key_value,
+            output_attentions,
+            output_router_logits,
+            use_cache,
+            **kwargs
+        )
+        
+        batch_size, sequence_length, hidden_dim = before_routing_shape
+        
+        final_hidden_states = torch.zeros(
+            (batch_size * sequence_length, hidden_dim), dtype=hidden_states.dtype, device=hidden_states.device
+        )
+        
+        # Loop through all subpools sequentially
+        for idx in range(self.sublayer_num):
+            # print(f"Layer: {self.begin_sublayer_idx + sublayer_idx} with subPoE: {idx}")
+            final_hidden_states = self.sparse_poe[idx](hidden_states, final_hidden_states, expert_mask, hidden_dim, routing_weights)
+        
+        hidden_states = final_hidden_states.reshape(batch_size, sequence_length, hidden_dim)
+        hidden_states = hidden_states.to(residual.device)
         hidden_states = residual + hidden_states
 
         outputs = (hidden_states,)
@@ -1137,8 +1023,10 @@ class PoEDecoderLayer(nn.Module):
         return outputs
 
     def get_expert_frequency(self):
-        return [self.block_sparse_poe.get_expert_frequency(idx) for idx in range(self.sub_layer_num)]
-
+        # TODO Implement expert frequency
+        return [[None,None]]
+        
+        
 
 MIXTRAL_START_DOCSTRING = r"""
     This model inherits from [`PreTrainedModel`]. Check the superclass documentation for the generic methods the
@@ -1165,7 +1053,7 @@ class PoEPreTrainedModel(PreTrainedModel):
     config_class = PoEModelConfig
     base_model_prefix = "model"
     supports_gradient_checkpointing = True
-    _no_split_modules = ["PoEDecoderLayer"]
+    _no_split_modules = ["PreprocessBlock", "SparsePoEBlock"]
     _skip_keys_device_placement = "past_key_values"
     _supports_flash_attn_2 = True
     _supports_sdpa = True
@@ -1474,7 +1362,7 @@ class PoEModel(PoEPreTrainedModel):
 
 class PoEForCausalLM(PoEPreTrainedModel):
     _tied_weights_keys = ["lm_head.weight"]
-    _no_split_modules = ["MixtralBlockSparseTop2MLP", "PoEDecoderLayer"]
+    _no_split_modules = ["PreprocessBlock","SparsePoEBlock"]
 
     def __init__(self, config):
         super().__init__(config)
