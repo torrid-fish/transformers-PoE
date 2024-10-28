@@ -813,7 +813,7 @@ class MixtralBLockSparseTop2MLP(MixtralBlockSparseTop2MLP):
         
 
 # [2024/10/24 Kuanting] Modified from `MixtralSparseMoEBlock`
-class SparsePoEBlock(nn.Module):
+class SubPoEBlock(nn.Module):
     """
     This implementation is
     strictly equivalent to standard MoE with full capacity (no
@@ -825,6 +825,7 @@ class SparsePoEBlock(nn.Module):
     and memory on padding.
 
     2024/05/19: Remove pool from the the internal. Change it as a parameter of the forward method.
+    2024/10/25: Only reserve the iteration part. The remaining routing part will be done in PreprocessBlock.
     """
 
     def __init__(self, config: PoEModelConfig, sublayer_idx: int):
@@ -835,7 +836,7 @@ class SparsePoEBlock(nn.Module):
         self.idx_shift = config.num_local_experts * sublayer_idx
 
         self.experts = nn.ModuleList([MixtralBlockSparseTop2MLP(config) for _ in range(self.num_experts)])
-
+        
         # Jitter parameters
         self.jitter_noise = config.router_jitter_noise
 
@@ -857,9 +858,6 @@ class SparsePoEBlock(nn.Module):
         
         return final_hidden_states
 
-    def get_expert_frequency(self, idx):
-        return self.frequency[idx].cpu().tolist()
-
 
 # [2024/10/25 Kuanting] Solution to GPU memory external fragmentation issue
 class PreprocessBlock(nn.Module):
@@ -868,7 +866,6 @@ class PreprocessBlock(nn.Module):
         self.hidden_size = config.hidden_size
         self.sublayer_num = sublayer_num
         
-        # [PoE modification] Now we have a config "pool_routing_type" to identify the routing algorithm
         self.routing_type: str = config.pool_routing_type
 
         # [2024/10/23 Kuanting] sublayer_num attenion layer
@@ -887,31 +884,8 @@ class PreprocessBlock(nn.Module):
         position_ids: Optional[torch.LongTensor] = None,
         past_key_value: Optional[Tuple[torch.Tensor]] = None,
         output_attentions: Optional[bool] = False,
-        output_router_logits: Optional[bool] = False,
-        use_cache: Optional[bool] = False,
-        **kwargs,
-    ) -> Tuple[torch.FloatTensor, Optional[Tuple[torch.FloatTensor, torch.FloatTensor]]]:
-        if "padding_mask" in kwargs:
-            warnings.warn(
-                "Passing `padding_mask` is deprecated and will be removed in v4.37. Please make sure use `attention_mask` instead.`"
-            )
-        """
-        Args:
-            hidden_states (`torch.FloatTensor`): input to the layer of shape `(batch, seq_len, embed_dim)`
-            attention_mask (`torch.FloatTensor`, *optional*): attention mask of size
-                `(batch, sequence_length)` where padding elements are indicated by 0.
-            past_key_value (`Tuple(torch.FloatTensor)`, *optional*): cached past key and value projection states
-            output_attentions (`bool`, *optional*):
-                Whether or not to return the attentions tensors of all attention layers. See `attentions` under
-                returned tensors for more detail.
-            output_router_logits (`bool`, *optional*):
-                Whether or not to return the logits of all the routers. They are useful for computing the router loss, and
-                should not be returned during inference.
-            use_cache (`bool`, *optional*):
-                If set to `True`, `past_key_values` key value states are returned and can be used to speed up decoding
-                (see `past_key_values`).
-        """
-        
+        use_cache: Optional[bool] = False
+    ):
         residual = hidden_states
 
         hidden_states = self.input_layernorm[sublayer_idx](hidden_states)
@@ -939,6 +913,7 @@ class PreprocessBlock(nn.Module):
         hidden_states = hidden_states.view(-1, hidden_dim)
         # router_logits: (batch * sequence_length, n_experts)
         router_logits = self.gate[sublayer_idx](hidden_states)
+        print("Router_logit shape:", router_logits.shape)
 
         if self.routing_type.startswith('Top'):
             routing_weights = F.softmax(router_logits, dim=1, dtype=torch.float)
@@ -950,14 +925,17 @@ class PreprocessBlock(nn.Module):
             # One hot encode the selected experts to create an expert mask
             # this will be used to easily index which expert is going to be sollicitated
             expert_mask = torch.nn.functional.one_hot(selected_experts, num_classes=self.num_experts).permute(2, 1, 0)
+        
+            # expert_mask.shape = (expert_num, top_k, batch*sequence_length)
+        
+            print("Expert mask:", expert_mask.shape)
         else:
             raise NotImplementedError
 
-        return hidden_states, residual, router_logits, expert_mask, routing_weights, \
-                (batch_size, sequence_length, hidden_dim), self_attn_weights, present_key_value
+        return hidden_states, residual, router_logits, expert_mask, \
+                routing_weights, self_attn_weights, present_key_value
 
-
-        
+ 
 # [2024/10/25 Kuanting] Solution to GPU memory external fragmentation issue
 class PoEDecoderLayer(nn.Module):
     def __init__(self, config: PoEModelConfig, begin_sublayer_idx: int, sublayer_num: int):
@@ -965,8 +943,8 @@ class PoEDecoderLayer(nn.Module):
         
         self.sublayer_num = sublayer_num
         self.begin_sublayer_idx = begin_sublayer_idx
-        self.PreprocessBlock = PreprocessBlock(config, begin_sublayer_idx, sublayer_num)
-        self.sparse_poe = nn.ModuleList([SparsePoEBlock(config, sublayer_idx) for sublayer_idx in range(sublayer_num)])
+        self.preprocessor = PreprocessBlock(config, begin_sublayer_idx, sublayer_num)
+        self.subpoeblock = nn.ModuleList([SubPoEBlock(config, sublayer_idx) for sublayer_idx in range(sublayer_num)])
 
     def forward(
         self,
@@ -980,31 +958,36 @@ class PoEDecoderLayer(nn.Module):
         use_cache: Optional[bool] = False,
         **kwargs,
     ) -> Tuple[torch.FloatTensor, Optional[Tuple[torch.FloatTensor, torch.FloatTensor]]]:
+        if "padding_mask" in kwargs:
+            warnings.warn(
+                "Passing `padding_mask` is deprecated and will be removed in v4.37. Please make sure use `attention_mask` instead.`"
+            )
         
-        hidden_states, residual, router_logits, expert_mask, routing_weights, \
-        before_routing_shape, self_attn_weights, present_key_value = self.PreprocessBlock(
+        batch_size, sequence_length, hidden_dim = hidden_states.shape
+        
+        # Preprocess
+        hidden_states, residual, router_logits, expert_mask, \
+        routing_weights, self_attn_weights, present_key_value = self.preprocessor(
             hidden_states,
             sublayer_idx,
             attention_mask,
             position_ids,
             past_key_value,
             output_attentions,
-            output_router_logits,
-            use_cache,
-            **kwargs
+            use_cache
         )
         
-        batch_size, sequence_length, hidden_dim = before_routing_shape
-        
+        # Cumulate all result one by one
         final_hidden_states = torch.zeros(
             (batch_size * sequence_length, hidden_dim), dtype=hidden_states.dtype, device=hidden_states.device
         )
         
-        # Loop through all subpools sequentially
+        # Pool of Experts: Loop through all subpools sequentially
         for idx in range(self.sublayer_num):
             # print(f"Layer: {self.begin_sublayer_idx + sublayer_idx} with subPoE: {idx}")
-            final_hidden_states = self.sparse_poe[idx](hidden_states, final_hidden_states, expert_mask, hidden_dim, routing_weights)
+            final_hidden_states = self.subpoeblock[idx](hidden_states, final_hidden_states, expert_mask, hidden_dim, routing_weights)
         
+        # Postprocess
         hidden_states = final_hidden_states.reshape(batch_size, sequence_length, hidden_dim)
         hidden_states = hidden_states.to(residual.device)
         hidden_states = residual + hidden_states
@@ -1053,7 +1036,7 @@ class PoEPreTrainedModel(PreTrainedModel):
     config_class = PoEModelConfig
     base_model_prefix = "model"
     supports_gradient_checkpointing = True
-    _no_split_modules = ["PreprocessBlock", "SparsePoEBlock"]
+    _no_split_modules = ["PreprocessBlock", "SubPoEBlock"]
     _skip_keys_device_placement = "past_key_values"
     _supports_flash_attn_2 = True
     _supports_sdpa = True
@@ -1362,7 +1345,7 @@ class PoEModel(PoEPreTrainedModel):
 
 class PoEForCausalLM(PoEPreTrainedModel):
     _tied_weights_keys = ["lm_head.weight"]
-    _no_split_modules = ["PreprocessBlock","SparsePoEBlock"]
+    _no_split_modules = ["PreprocessBlock","SubPoEBlock"]
 
     def __init__(self, config):
         super().__init__(config)
