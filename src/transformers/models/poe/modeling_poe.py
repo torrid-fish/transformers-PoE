@@ -52,6 +52,7 @@ from ...utils import (
 )
 from ...utils.import_utils import is_torch_fx_available
 from .configuration_poe import PoEModelConfig
+import numpy as np
 
 
 if is_flash_attn_2_available():
@@ -875,7 +876,8 @@ class PreprocessBlock(nn.Module):
         self.hidden_dim = config.hidden_size
         self.num_experts = sublayer_num * config.num_local_experts
         self.gate = nn.ModuleList([nn.Linear(self.hidden_dim, self.num_experts, bias=False) for _ in range(sublayer_num)])
-
+        self.frequency = np.zeros((sublayer_num, self.num_experts))
+        
     def forward(
         self,
         hidden_states: torch.Tensor,
@@ -913,7 +915,6 @@ class PreprocessBlock(nn.Module):
         hidden_states = hidden_states.view(-1, hidden_dim)
         # router_logits: (batch * sequence_length, n_experts)
         router_logits = self.gate[sublayer_idx](hidden_states)
-        print("Router_logit shape:", router_logits.shape)
 
         if self.routing_type.startswith('Top'):
             routing_weights = F.softmax(router_logits, dim=1, dtype=torch.float)
@@ -921,20 +922,26 @@ class PreprocessBlock(nn.Module):
             routing_weights, selected_experts = torch.topk(routing_weights, top_k, dim=-1)
             routing_weights /= routing_weights.sum(dim=-1, keepdim=True)    
             routing_weights = routing_weights.to(hidden_states.dtype)
+            
+            # Record selection
+            selection = selected_experts.detach().cpu().numpy()
+            for s in selection:
+                for topi in s:
+                    self.frequency[sublayer_idx][topi] += 1
+            
 
             # One hot encode the selected experts to create an expert mask
             # this will be used to easily index which expert is going to be sollicitated
             expert_mask = torch.nn.functional.one_hot(selected_experts, num_classes=self.num_experts).permute(2, 1, 0)
-        
-            # expert_mask.shape = (expert_num, top_k, batch*sequence_length)
-        
-            print("Expert mask:", expert_mask.shape)
         else:
             raise NotImplementedError
 
         return hidden_states, residual, router_logits, expert_mask, \
                 routing_weights, self_attn_weights, present_key_value
 
+    def get_expert_frequency(self):
+        return self.frequency
+        
  
 # [2024/10/25 Kuanting] Solution to GPU memory external fragmentation issue
 class PoEDecoderLayer(nn.Module):
@@ -1006,8 +1013,7 @@ class PoEDecoderLayer(nn.Module):
         return outputs
 
     def get_expert_frequency(self):
-        # TODO Implement expert frequency
-        return [[None,None]]
+        return self.preprocessor.get_expert_frequency()
         
         
 
@@ -1339,8 +1345,9 @@ class PoEModel(PoEPreTrainedModel):
     def get_expert_frequency(self):
         result = []
         for layer in self.layers:
+            layer: PoEDecoderLayer
             for sublayer_freq in layer.get_expert_frequency(): # Might have multiple sublayers per layer
-                result.append(sublayer_freq)
+                result.append(list(sublayer_freq))
         return result
 
 class PoEForCausalLM(PoEPreTrainedModel):
