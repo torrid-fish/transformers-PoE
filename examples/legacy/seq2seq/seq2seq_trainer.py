@@ -79,7 +79,7 @@ class Seq2SeqTrainer(Trainer):
             self.loss_fn = torch.nn.CrossEntropyLoss(ignore_index=self.config.pad_token_id)
         else:
             # dynamically import label_smoothed_nll_loss
-            from utils import label_smoothed_nll_loss
+            from utils.utils import label_smoothed_nll_loss
 
             self.loss_fn = label_smoothed_nll_loss
 

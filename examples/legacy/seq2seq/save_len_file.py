@@ -18,7 +18,7 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 from transformers import AutoTokenizer
-from utils import Seq2SeqDataset, pickle_save
+from utils.utils import Seq2SeqDataset, pickle_save
 
 
 def save_len_file(

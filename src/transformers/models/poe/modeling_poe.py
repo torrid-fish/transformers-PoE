@@ -838,9 +838,6 @@ class SubPoEBlock(nn.Module):
 
         self.experts = nn.ModuleList([MixtralBlockSparseTop2MLP(config) for _ in range(self.num_experts)])
         
-        # Jitter parameters
-        self.jitter_noise = config.router_jitter_noise
-
     def forward(self, hidden_states: torch.Tensor, final_hidden_states: torch.Tensor, expert_mask: torch.Tensor, hidden_dim: int, routing_weights: torch.Tensor) -> torch.Tensor:
     
         # Loop over all available experts in the model and perform the computation on each expert
@@ -877,6 +874,8 @@ class PreprocessBlock(nn.Module):
         self.num_experts = sublayer_num * config.num_local_experts
         self.gate = nn.ModuleList([nn.Linear(self.hidden_dim, self.num_experts, bias=False) for _ in range(sublayer_num)])
         self.frequency = np.zeros((sublayer_num, self.num_experts))
+        # Jitter parameters
+        self.jitter_noise = config.router_jitter_noise
         
     def forward(
         self,

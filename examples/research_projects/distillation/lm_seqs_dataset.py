@@ -20,7 +20,7 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset
 
-from utils import logger
+from utils.utils import logger
 
 
 class LmSeqsDataset(Dataset):

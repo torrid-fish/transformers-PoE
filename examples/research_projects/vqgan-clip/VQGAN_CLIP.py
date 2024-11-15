@@ -11,7 +11,7 @@ from PIL import Image
 from torch import nn
 
 from transformers import CLIPModel, CLIPTokenizerFast
-from utils import get_device, get_timestamp, show_pil
+from utils.utils import get_device, get_timestamp, show_pil
 
 
 class ProcessorGradientFlow:

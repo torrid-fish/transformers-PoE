@@ -14,7 +14,7 @@
 
 import fire
 
-from utils import calculate_rouge, save_json
+from utils.utils import calculate_rouge, save_json
 
 
 def calculate_rouge_path(pred_path, tgt_path, save_path=None, **kwargs):

@@ -42,7 +42,7 @@ from transformers import (
     RobertaForMaskedLM,
     RobertaTokenizer,
 )
-from utils import git_log, init_gpu_params, logger, set_seed
+from utils.utils import git_log, init_gpu_params, logger, set_seed
 
 
 MODEL_CLASSES = {

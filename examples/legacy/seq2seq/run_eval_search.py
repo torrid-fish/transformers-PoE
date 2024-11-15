@@ -21,7 +21,7 @@ from collections import OrderedDict
 
 from run_eval import datetime_now, run_generate
 
-from utils import ROUGE_KEYS
+from utils.utils import ROUGE_KEYS
 
 
 # A table of supported tasks and the list of scores in the order of importance to be sorted by.

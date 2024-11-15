@@ -19,7 +19,7 @@ from torch import nn
 
 from transformers import AutoConfig, AutoModelForSeq2SeqLM
 from transformers.testing_utils import CaptureStderr, CaptureStdout, TestCasePlus, require_torch_gpu, slow
-from utils import label_smoothed_nll_loss, lmap, load_json
+from utils.utils import label_smoothed_nll_loss, lmap, load_json
 
 
 logging.basicConfig(level=logging.DEBUG)

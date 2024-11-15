@@ -16,7 +16,7 @@ from torch import nn
 
 from transformers import AutoModelForSeq2SeqLM, MBartTokenizer, T5ForConditionalGeneration
 from transformers.models.bart.modeling_bart import shift_tokens_right
-from utils import calculate_bleu, check_output_dir, freeze_params, label_smoothed_nll_loss, use_task_specific_params
+from utils.utils import calculate_bleu, check_output_dir, freeze_params, label_smoothed_nll_loss, use_task_specific_params
 
 
 # need the parent dir module

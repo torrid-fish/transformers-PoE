@@ -34,7 +34,7 @@ from transformers import (
 )
 from transformers.trainer_utils import EvaluationStrategy, is_main_process
 from transformers.training_args import ParallelMode
-from utils import (
+from utils.utils import (
     Seq2SeqDataCollator,
     Seq2SeqDataset,
     assert_all_frozen,

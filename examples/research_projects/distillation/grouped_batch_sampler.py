@@ -21,7 +21,7 @@ from collections import defaultdict
 import numpy as np
 from torch.utils.data import BatchSampler, Sampler
 
-from utils import logger
+from utils.utils import logger
 
 
 def _quantize(x, bins):

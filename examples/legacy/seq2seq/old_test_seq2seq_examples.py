@@ -23,7 +23,7 @@ from run_eval import run_generate
 from run_eval_search import run_search
 
 from transformers.testing_utils import CaptureStdout, TestCasePlus, slow
-from utils import ROUGE_KEYS
+from utils.utils import ROUGE_KEYS
 
 
 logging.basicConfig(level=logging.DEBUG)

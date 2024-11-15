@@ -19,7 +19,7 @@ from torch.utils.data import DataLoader
 
 from transformers import MBartTokenizer, T5ForConditionalGeneration
 from transformers.models.bart.modeling_bart import shift_tokens_right
-from utils import (
+from utils.utils import (
     ROUGE_KEYS,
     LegacySeq2SeqDataset,
     Seq2SeqDataset,

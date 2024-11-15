@@ -18,7 +18,7 @@ from pathlib import Path
 import pandas as pd
 from rouge_cli import calculate_rouge_path
 
-from utils import calculate_rouge
+from utils.utils import calculate_rouge
 
 
 PRED = [

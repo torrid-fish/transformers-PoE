@@ -12,7 +12,7 @@ import torch
 from modeling_frcnn import GeneralizedRCNN
 from processing_image import Preprocess
 
-from utils import Config
+from utils.utils import Config
 
 
 """
