@@ -856,6 +856,21 @@ class SubPoEBlock(nn.Module):
         
         return final_hidden_states
 
+class InputLayernorm(nn.ModuleList):
+    def __init__(self, config: PoEModelConfig, sublayer_num):
+        super().__init__([MixtralRMSNorm(config.hidden_size, eps=config.rms_norm_eps) for _ in range(sublayer_num)])
+
+class SelfAttn(nn.ModuleList):
+    def __init__(self, config: PoEModelConfig, layer_idx, sublayer_num):
+        super().__init__([MIXTRAL_ATTENTION_CLASSES[config._attn_implementation](config, layer_idx+i) for i in range(sublayer_num)])
+
+class PostAttnLayernorm(nn.ModuleList):
+    def __init__(self, config: PoEModelConfig, sublayer_num):
+        super().__init__([MixtralRMSNorm(config.hidden_size, eps=config.rms_norm_eps) for _ in range(sublayer_num)])
+
+class Gate(nn.ModuleList):
+    def __init__(self, hidden_dim, num_experts, sublayer_num):
+        super().__init__([nn.Linear(hidden_dim, num_experts, bias=False) for _ in range(sublayer_num)])
 
 # [2024/10/25 Kuanting] Solution to GPU memory external fragmentation issue
 class PreprocessBlock(nn.Module):
@@ -867,12 +882,21 @@ class PreprocessBlock(nn.Module):
         self.routing_type: str = config.pool_routing_type
 
         # [2024/10/23 Kuanting] sublayer_num attenion layer
-        self.input_layernorm = nn.ModuleList([MixtralRMSNorm(config.hidden_size, eps=config.rms_norm_eps) for _ in range(sublayer_num)])
-        self.self_attn = nn.ModuleList([MIXTRAL_ATTENTION_CLASSES[config._attn_implementation](config, layer_idx+i) for i in range(sublayer_num)])
-        self.post_attention_layernorm = nn.ModuleList([MixtralRMSNorm(config.hidden_size, eps=config.rms_norm_eps) for _ in range(sublayer_num)])
+        
+        # [2024/11/16 Koios] Replace to self-defined class
+        # Since we may want input_layernorm, post_attention_layernorm, gate to be trainable
+        # We should add some dummy class to specify _no_split_modules precisely
+        
+        # self.input_layernorm = nn.ModuleList([MixtralRMSNorm(config.hidden_size, eps=config.rms_norm_eps) for _ in range(sublayer_num)])
+        self.input_layernorm = InputLayernorm(config=config, sublayer_num=sublayer_num)
+        # self.self_attn = nn.ModuleList([MIXTRAL_ATTENTION_CLASSES[config._attn_implementation](config, layer_idx+i) for i in range(sublayer_num)])
+        self.self_attn = SelfAttn(config=config, layer_idx=layer_idx, sublayer_num=sublayer_num)
+        # self.post_attention_layernorm = nn.ModuleList([MixtralRMSNorm(config.hidden_size, eps=config.rms_norm_eps) for _ in range(sublayer_num)])
+        self.post_attention_layernorm = PostAttnLayernorm(config=config, sublayer_num=sublayer_num)
         self.hidden_dim = config.hidden_size
         self.num_experts = sublayer_num * config.num_local_experts
-        self.gate = nn.ModuleList([nn.Linear(self.hidden_dim, self.num_experts, bias=False) for _ in range(sublayer_num)])
+        # self.gate = nn.ModuleList([nn.Linear(self.hidden_dim, self.num_experts, bias=False) for _ in range(sublayer_num)])
+        self.gate = Gate(hidden_dim=self.hidden_dim, num_experts=self.num_experts, sublayer_num=sublayer_num)
         self.frequency = np.zeros((sublayer_num, self.num_experts))
         # Jitter parameters
         self.jitter_noise = config.router_jitter_noise
