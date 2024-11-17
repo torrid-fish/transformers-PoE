@@ -2299,6 +2299,10 @@ class Trainer:
         # self.model_wrapped is DDP(Transformers Model), Deepspeed(Transformers Model),
         # FSDP(Transformers Model), Dynamo Optimized Module(Transformers Model) etc.
 
+        self.accelerator.print(f'[DEBUG] The wrapped model: {self.model_wrapped}')
+        # for name, param in model.named_parameters():
+        #     print(f'[DEBUG][NODE{torch.cuda.current_device()}] param {name} with shape {param.shape}\ttrainable: {param.requires_grad}')
+
         # Train!
         logger.info("***** Running training *****")
         logger.info(f"  Num examples = {num_examples:,}")
@@ -2310,6 +2314,7 @@ class Trainer:
         logger.info(f"  Gradient Accumulation steps = {args.gradient_accumulation_steps}")
         logger.info(f"  Total optimization steps = {max_steps:,}")
         logger.info(f"  Number of trainable parameters = {get_model_param_count(model, trainable_only=True):,}")
+        print(f"  [NODE{torch.cuda.current_device()}] Number of trainable parameters = {get_model_param_count(model, trainable_only=True):,}")
 
         self.state.epoch = 0
         start_time = time.time()
